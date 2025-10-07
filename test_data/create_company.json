@@ -1,0 +1,27 @@
+{
+  "name": "Автомойка Премиум",
+  "logo": "https://storage.example.com/logos/company-123.png",
+  "description": "Профессиональная автомойка и детейлинг в центре Москвы",
+  "tags": ["#мойка", "#детейлинг", "#москва", "#премиум"],
+  "addresses": [
+    {
+      "city": "Москва",
+      "street": "Тверская улица",
+      "building": "10к1",
+      "coordinates": {
+        "latitude": 55.755826,
+        "longitude": 37.617299
+      }
+    }
+  ],
+  "working_hours": {
+    "monday": {"isOpen": true, "openTime": "09:00", "closeTime": "21:00"},
+    "tuesday": {"isOpen": true, "openTime": "09:00", "closeTime": "21:00"},
+    "wednesday": {"isOpen": true, "openTime": "09:00", "closeTime": "21:00"},
+    "thursday": {"isOpen": true, "openTime": "09:00", "closeTime": "21:00"},
+    "friday": {"isOpen": true, "openTime": "09:00", "closeTime": "21:00"},
+    "saturday": {"isOpen": true, "openTime": "10:00", "closeTime": "20:00"},
+    "sunday": {"isOpen": false}
+  },
+  "manager_ids": [123456789]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "Автомойка Экспресс",
+  "description": "Быстрая мойка для занятых людей",
+  "tags": ["#мойка", "#экспресс"],
+  "addresses": [
+    {
+      "city": "Москва",
+      "street": "Ленинский проспект",
+      "building": "25",
+      "coordinates": {
+        "latitude": 55.704,
+        "longitude": 37.542
+      }
+    }
+  ],
+  "working_hours": {
+    "monday": {"isOpen": true, "openTime": "08:00", "closeTime": "22:00"},
+    "tuesday": {"isOpen": true, "openTime": "08:00", "closeTime": "22:00"},
+    "wednesday": {"isOpen": true, "openTime": "08:00", "closeTime": "22:00"},
+    "thursday": {"isOpen": true, "openTime": "08:00", "closeTime": "22:00"},
+    "friday": {"isOpen": true, "openTime": "08:00", "closeTime": "22:00"},
+    "saturday": {"isOpen": true, "openTime": "09:00", "closeTime": "21:00"},
+    "sunday": {"isOpen": true, "openTime": "10:00", "closeTime": "20:00"}
+  },
+  "manager_ids": [987654321]
+}
