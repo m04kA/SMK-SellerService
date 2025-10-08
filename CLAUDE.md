@@ -17,24 +17,60 @@ SMK-SellerService - микросервис для управления комп�
 - **Query Builder**: Squirrel (psqlbuilder wrapper)
 - **Authentication**: Simplified (X-User-ID + X-User-Role headers for MVP)
 - **Logging**: Custom logger (console + file, injectable dependency)
+- **Metrics**: Prometheus (HTTP + Database metrics)
+- **Monitoring**: Централизованный мониторинг через SMK-Monitoring
 - **Containerization**: Docker Compose
 - **Module**: `github.com/m04kA/SMK-SellerService`
 
 ## Development Commands
 
+### Makefile команды (рекомендуется)
+
+```bash
+# Справка по всем командам
+make help
+
+# Запуск всех сервисов в Docker
+make docker-up
+
+# Просмотр логов приложения
+make docker-logs-app
+
+# Остановка всех сервисов
+make docker-down
+
+# Полная очистка (volumes + images)
+make clean-all
+
+# Разработка с локальным запуском
+make dev          # Запустить только БД
+make run          # Запустить приложение локально
+
+# Сброс базы данных
+make db-reset
+```
+
 ### Quick Start (Docker)
 
 ```bash
 # Запуск всех сервисов
+make docker-up
+# или
 docker-compose up -d
 
 # Просмотр логов
+make docker-logs
+# или
 docker-compose logs -f
 
 # Остановка всех сервисов
+make docker-down
+# или
 docker-compose down
 
 # Полная очистка (volumes + images)
+make clean-all
+# или
 docker-compose down -v
 ```
 
@@ -42,13 +78,19 @@ docker-compose down -v
 
 ```bash
 # Установка зависимостей (первый раз)
+make install
+# или
 go mod tidy
 
 # Запуск приложения локально
+make run
+# или
 go run cmd/main.go
 
 # Сборка бинарного файла
-go build -o bin/sellerservice cmd/main.go
+make build
+# или
+go build -o bin/smk-sellerservice cmd/main.go
 ```
 
 ### Database Management
@@ -80,6 +122,51 @@ API полностью протестирован и соответствует 
 # Коллекция находится в /Users/yapanarin/GolandProjects/SMC-Bruno/SMC/SellerService
 # 16 готовых запросов для всех endpoints
 ```
+
+### Monitoring and Metrics
+
+Сервис экспортирует метрики в формате Prometheus на `/metrics` endpoint:
+
+```bash
+# Просмотр метрик
+curl http://localhost:8081/metrics
+```
+
+**Централизованный мониторинг:**
+- Метрики автоматически собираются сервисом **SMK-Monitoring** (https://github.com/m04kA/SMK-Monitoring)
+- **Prometheus** scrapes метрики каждые 15 секунд с endpoint `host.docker.internal:8081/metrics`
+- **Grafana** визуализирует метрики на дашборде "SMK-SellerService Metrics"
+- **PostgreSQL Exporter** собирает метрики базы данных
+
+**Доступные метрики:**
+- `http_requests_total` - количество HTTP запросов (labels: method, endpoint, status_code, service)
+- `http_request_duration_seconds` - длительность HTTP запросов (histogram)
+- `db_queries_total` - количество SQL запросов (labels: operation, table, status, service)
+- `db_query_duration_seconds` - длительность SQL запросов (histogram)
+- `db_connections_active` - активные соединения с БД (gauge)
+- `db_connections_idle` - простаивающие соединения в пуле (gauge)
+- `db_connections_max` - максимум соединений (gauge)
+
+**Конфигурация метрик:**
+```toml
+# config.toml
+[metrics]
+enabled = true
+path = "/metrics"
+service_name = "sellerservice"
+```
+
+Переопределение через env:
+```bash
+METRICS_ENABLED=true
+METRICS_PATH=/metrics
+METRICS_SERVICE_NAME=sellerservice
+```
+
+**Ключевые пакеты для метрик:**
+- `pkg/dbmetrics` - обёртка над sql.DB для сбора метрик БД
+- `pkg/dbmetrics/interfaces.go` - интерфейсы DBExecutor, TxExecutor, SqlTxWrapper
+- `internal/api/middleware/metrics.go` - middleware для HTTP метрик (если используется)
 
 ## Архитектура
 
@@ -141,16 +228,30 @@ SMK-SellerService/
 ├── pkg/
 │   ├── logger/
 │   │   └── logger.go                   # Injectable logger (Info/Warn/Error)
+│   ├── dbmetrics/                       # Prometheus метрики для БД
+│   │   ├── db.go                       # Обёртка над sql.DB с метриками
+│   │   ├── interfaces.go               # DBExecutor, TxExecutor, SqlTxWrapper
+│   │   └── metrics.go                  # Prometheus collectors
 │   └── psqlbuilder/
 │       └── psqlbuilder.go              # Обёртка над squirrel
 ├── migrations/
 │   ├── 000001_init_schema.up.sql
 │   ├── 000001_init_schema.down.sql
 │   └── ...
+├── test_data/                           # Тестовые данные и команды
+│   ├── API_TEST_COMMANDS.md            # Набор curl команд для тестирования
+│   ├── create_company.json
+│   ├── update_company.json
+│   ├── create_service.json
+│   └── update_service.json
 ├── schemas/
-│   ├── schema.yaml                      # OpenAPI 3.0 спецификация
-│   └── docker-compose.yml
+│   └── schema.yaml                      # OpenAPI 3.0 спецификация
 ├── config.toml                          # Конфигурация приложения
+├── docker-compose.yml                   # Docker окружение
+├── Dockerfile.sellerservice             # Multi-stage Dockerfile
+├── Makefile                             # Команды для разработки
+├── .env                                 # Переменные окружения (не в git)
+├── .env.example                         # Пример .env файла
 └── go.mod
 ```
 
