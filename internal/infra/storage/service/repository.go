@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/m04kA/SMK-SellerService/internal/domain"
+	"github.com/m04kA/SMK-SellerService/pkg/dbmetrics"
 	"github.com/m04kA/SMK-SellerService/pkg/psqlbuilder"
 
 	"github.com/Masterminds/squirrel"
@@ -277,15 +278,25 @@ func (r *Repository) Delete(ctx context.Context, companyID int64, serviceID int6
 
 // Helper methods
 
-func (r *Repository) beginTx(ctx context.Context) (*sql.Tx, error) {
-	db, ok := r.db.(*sql.DB)
-	if !ok {
-		return nil, fmt.Errorf("db is not *sql.DB")
+func (r *Repository) beginTx(ctx context.Context) (TxExecutor, error) {
+	// Пытаемся привести к TxBeginner интерфейсу (dbmetrics.DB реализует этот интерфейс)
+	if txBeginner, ok := r.db.(TxBeginner); ok {
+		return txBeginner.BeginTx(ctx, nil)
 	}
-	return db.BeginTx(ctx, nil)
+
+	// Fallback для обычного *sql.DB
+	if db, ok := r.db.(*sql.DB); ok {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("%w: beginTx: %v", ErrTransaction, err)
+		}
+		return &dbmetrics.SqlTxWrapper{Tx: tx}, nil
+	}
+
+	return nil, fmt.Errorf("%w: db type not supported", ErrTransaction)
 }
 
-func (r *Repository) createServiceAddress(ctx context.Context, tx *sql.Tx, serviceID int64, addressID int64) error {
+func (r *Repository) createServiceAddress(ctx context.Context, tx TxExecutor, serviceID int64, addressID int64) error {
 	query, args, err := psqlbuilder.Insert("service_addresses").
 		Columns("service_id", "address_id").
 		Values(serviceID, addressID).

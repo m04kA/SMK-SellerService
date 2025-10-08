@@ -3,11 +3,15 @@ package service
 import (
 	"context"
 	"database/sql"
+
+	"github.com/m04kA/SMK-SellerService/pkg/dbmetrics"
 )
 
-// DBExecutor интерфейс для выполнения SQL запросов (поддерживает *sql.DB и *sql.Tx)
-type DBExecutor interface {
-	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+// Переиспользуем интерфейсы из dbmetrics
+type DBExecutor = dbmetrics.DBExecutor
+type TxExecutor = dbmetrics.TxExecutor
+
+// TxBeginner интерфейс для начала транзакций (поддерживает *sql.DB и *dbmetrics.DB)
+type TxBeginner interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (TxExecutor, error)
 }

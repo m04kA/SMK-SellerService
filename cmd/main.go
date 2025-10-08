@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/m04kA/SMK-SellerService/internal/api/handlers/create_company"
 	"github.com/m04kA/SMK-SellerService/internal/api/handlers/create_service"
@@ -24,16 +25,26 @@ import (
 	"github.com/m04kA/SMK-SellerService/internal/api/handlers/update_company"
 	"github.com/m04kA/SMK-SellerService/internal/api/handlers/update_service"
 	"github.com/m04kA/SMK-SellerService/internal/api/middleware"
+	"github.com/m04kA/SMK-SellerService/internal/config"
 	companyRepo "github.com/m04kA/SMK-SellerService/internal/infra/storage/company"
 	serviceRepo "github.com/m04kA/SMK-SellerService/internal/infra/storage/service"
 	companiesService "github.com/m04kA/SMK-SellerService/internal/service/companies"
 	servicesService "github.com/m04kA/SMK-SellerService/internal/service/services"
+	"github.com/m04kA/SMK-SellerService/pkg/dbmetrics"
 	"github.com/m04kA/SMK-SellerService/pkg/logger"
+	"github.com/m04kA/SMK-SellerService/pkg/metrics"
 )
 
 func main() {
+	// Загружаем конфигурацию
+	cfg, err := config.Load("config.toml")
+	if err != nil {
+		fmt.Printf("Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Инициализируем логгер
-	log, err := logger.New("./logs/app.log")
+	log, err := logger.New(cfg.Logs.File)
 	if err != nil {
 		fmt.Printf("Failed to initialize logger: %v\n", err)
 		os.Exit(1)
@@ -41,28 +52,59 @@ func main() {
 	defer log.Close()
 
 	log.Info("Starting SMK-SellerService...")
+	log.Info("Configuration loaded from config.toml")
+
+	// Инициализируем метрики (если включены)
+	var metricsCollector *metrics.Metrics
+	var wrappedDB *dbmetrics.DB
+	stopMetricsCh := make(chan struct{})
+
+	if cfg.Metrics.Enabled {
+		metricsCollector = metrics.New(cfg.Metrics.ServiceName)
+		log.Info("Metrics enabled at %s", cfg.Metrics.Path)
+	}
 
 	// Подключаемся к базе данных
-	dsn := "host=localhost port=5436 user=postgres password=postgres dbname=smk_sellerservice sslmode=disable"
-	db, err := sql.Open("postgres", dsn)
+	db, err := sql.Open("postgres", cfg.Database.DSN())
 	if err != nil {
 		log.Fatal("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
+	// Настраиваем connection pool
+	db.SetMaxOpenConns(cfg.Database.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.Database.MaxIdleConns)
+	db.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
+
 	// Проверяем соединение
 	if err := db.Ping(); err != nil {
 		log.Fatal("Failed to ping database: %v", err)
 	}
-	log.Info("Successfully connected to database")
+	log.Info("Successfully connected to database (host=%s, port=%d, db=%s)",
+		cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName)
 
-	// Инициализируем репозитории
-	companyRepository := companyRepo.NewRepository(db)
-	serviceRepository := serviceRepo.NewRepository(db)
+	// Инициализируем репозитории и сервисы (с метриками или без)
+	var companySvc *companiesService.Service
+	var serviceSvc *servicesService.Service
 
-	// Инициализируем сервисы
-	companySvc := companiesService.NewService(companyRepository)
-	serviceSvc := servicesService.NewService(serviceRepository, companyRepository)
+	if cfg.Metrics.Enabled {
+		wrappedDB = dbmetrics.WrapWithDefault(db, metricsCollector, cfg.Metrics.ServiceName, stopMetricsCh)
+		log.Info("Database metrics collection started")
+
+		// Инициализируем репозитории с обёрткой метрик
+		companyRepository := companyRepo.NewRepository(wrappedDB)
+		serviceRepository := serviceRepo.NewRepository(wrappedDB)
+
+		companySvc = companiesService.NewService(companyRepository)
+		serviceSvc = servicesService.NewService(serviceRepository, companyRepository)
+	} else {
+		// Инициализируем репозитории без метрик
+		companyRepository := companyRepo.NewRepository(db)
+		serviceRepository := serviceRepo.NewRepository(db)
+
+		companySvc = companiesService.NewService(companyRepository)
+		serviceSvc = servicesService.NewService(serviceRepository, companyRepository)
+	}
 
 	// Инициализируем handlers для компаний
 	createCompanyHandler := create_company.NewHandler(companySvc, log)
@@ -80,6 +122,18 @@ func main() {
 
 	// Настраиваем роутер
 	r := mux.NewRouter()
+
+	// Добавляем metrics middleware (если метрики включены)
+	if cfg.Metrics.Enabled {
+		r.Use(middleware.MetricsMiddleware(metricsCollector, cfg.Metrics.ServiceName))
+		log.Info("HTTP metrics middleware enabled")
+	}
+
+	// Metrics endpoint (публичный, без аутентификации)
+	if cfg.Metrics.Enabled {
+		r.Handle(cfg.Metrics.Path, promhttp.Handler()).Methods(http.MethodGet)
+		log.Info("Prometheus metrics endpoint exposed at %s", cfg.Metrics.Path)
+	}
 
 	// API prefix
 	api := r.PathPrefix("/api/v1").Subrouter()
@@ -107,13 +161,13 @@ func main() {
 	protected.HandleFunc("/companies/{company_id}/services/{service_id}", deleteServiceHandler.Handle).Methods(http.MethodDelete)
 
 	// Создаем HTTP сервер
-	addr := ":8081"
+	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  time.Duration(cfg.Server.ReadTimeout) * time.Second,
+		WriteTimeout: time.Duration(cfg.Server.WriteTimeout) * time.Second,
+		IdleTimeout:  time.Duration(cfg.Server.IdleTimeout) * time.Second,
 	}
 
 	// Graceful shutdown
@@ -131,10 +185,19 @@ func main() {
 
 	log.Info("Shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Останавливаем сбор метрик connection pool
+	if cfg.Metrics.Enabled {
+		close(stopMetricsCh)
+		log.Info("Metrics collection stopped")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(
+		context.Background(),
+		time.Duration(cfg.Server.ShutdownTimeout)*time.Second,
+	)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("Server forced to shutdown: %v", err)
 	}
 
