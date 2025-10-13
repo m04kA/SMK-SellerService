@@ -7,7 +7,7 @@ import (
 )
 
 type ServiceService interface {
-	ListByCompany(ctx context.Context, companyID int64) (*models.ServiceListResponse, error)
+	ListByCompany(ctx context.Context, companyID int64, userID *int64) (*models.ServiceListResponse, error)
 }
 
 type Logger interface {

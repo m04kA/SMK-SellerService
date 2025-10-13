@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/m04kA/SMK-SellerService/internal/domain"
+	"github.com/m04kA/SMK-SellerService/internal/integrations/priceservice"
 )
 
 // ServiceRepository интерфейс репозитория услуг
@@ -19,4 +20,9 @@ type ServiceRepository interface {
 type CompanyRepository interface {
 	IsManager(ctx context.Context, companyID int64, userID int64) (bool, error)
 	GetByID(ctx context.Context, id int64) (*domain.Company, error)
+}
+
+// PriceServiceClient интерфейс для интеграции с PriceService
+type PriceServiceClient interface {
+	CalculatePricesWithGracefulDegradation(ctx context.Context, req *priceservice.CalculatePricesRequest) (*priceservice.CalculatePricesResponse, error)
 }

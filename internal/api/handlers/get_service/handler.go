@@ -48,7 +48,16 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	service, err := h.service.GetByID(r.Context(), companyID, serviceID)
+	// Парсим опциональный заголовок X-User-ID для расчёта цен
+	var userID *int64
+	if userIDStr := r.Header.Get("X-User-ID"); userIDStr != "" {
+		parsedUserID, err := strconv.ParseInt(userIDStr, 10, 64)
+		if err == nil && parsedUserID > 0 {
+			userID = &parsedUserID
+		}
+	}
+
+	service, err := h.service.GetByID(r.Context(), companyID, serviceID, userID)
 	if err != nil {
 		if errors.Is(err, services.ErrServiceNotFound) {
 			h.logger.Warn("GET /companies/{company_id}/services/{service_id} - Service not found: company_id=%d, service_id=%d", companyID, serviceID)
@@ -60,6 +69,10 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.logger.Info("GET /companies/{company_id}/services/{service_id} - Service retrieved successfully: company_id=%d, service_id=%d", companyID, serviceID)
+	if userID != nil {
+		h.logger.Info("GET /companies/{company_id}/services/{service_id} - Service retrieved successfully: company_id=%d, service_id=%d, user_id=%d", companyID, serviceID, *userID)
+	} else {
+		h.logger.Info("GET /companies/{company_id}/services/{service_id} - Service retrieved successfully: company_id=%d, service_id=%d", companyID, serviceID)
+	}
 	handlers.RespondJSON(w, http.StatusOK, service)
 }

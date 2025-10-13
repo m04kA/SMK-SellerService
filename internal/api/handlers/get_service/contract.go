@@ -7,7 +7,7 @@ import (
 )
 
 type ServiceService interface {
-	GetByID(ctx context.Context, companyID int64, serviceID int64) (*models.ServiceResponse, error)
+	GetByID(ctx context.Context, companyID int64, serviceID int64, userID *int64) (*models.ServiceResponse, error)
 }
 
 type Logger interface {

@@ -32,6 +32,12 @@ type ServiceResponse struct {
 	AddressIDs      []int64   `json:"address_ids"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	// Price fields (optional, populated when PriceService is available)
+	Price             *float64 `json:"price,omitempty"`
+	Currency          *string  `json:"currency,omitempty"`
+	PricingType       *string  `json:"pricing_type,omitempty"`
+	VehicleClass      *string  `json:"vehicle_class,omitempty"`
+	AppliedMultiplier *float64 `json:"applied_multiplier,omitempty"`
 }
 
 // ServiceListResponse ответ со списком услуг
@@ -70,6 +76,12 @@ func FromDomainService(s *domain.Service) *ServiceResponse {
 		AddressIDs:      s.AddressIDs,
 		CreatedAt:       s.CreatedAt,
 		UpdatedAt:       s.UpdatedAt,
+		// Price fields will be populated separately when needed
+		Price:             nil,
+		Currency:          nil,
+		PricingType:       nil,
+		VehicleClass:      nil,
+		AppliedMultiplier: nil,
 	}
 }
 
@@ -84,4 +96,13 @@ func FromDomainServiceList(services []domain.Service) *ServiceListResponse {
 	}
 
 	return response
+}
+
+// EnrichWithPrice обогащает ServiceResponse данными о цене
+func (s *ServiceResponse) EnrichWithPrice(price *float64, currency *string, pricingType *string, vehicleClass *string, appliedMultiplier *float64) {
+	s.Price = price
+	s.Currency = currency
+	s.PricingType = pricingType
+	s.VehicleClass = vehicleClass
+	s.AppliedMultiplier = appliedMultiplier
 }

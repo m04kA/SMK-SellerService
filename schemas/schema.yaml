@@ -207,6 +207,33 @@ components:
           type: string
           format: date-time
           readOnly: true
+        price:
+          type: number
+          format: double
+          nullable: true
+          description: "Цена услуги (опционально, заполняется при наличии X-User-ID через интеграцию с PriceService)"
+          example: 1500.00
+        currency:
+          type: string
+          nullable: true
+          description: "Валюта цены (опционально)"
+          example: "RUB"
+        pricingType:
+          type: string
+          nullable: true
+          description: "Тип ценообразования (опционально)"
+          example: "fixed"
+        vehicleClass:
+          type: string
+          nullable: true
+          description: "Класс автомобиля пользователя (опционально)"
+          example: "sedan"
+        appliedMultiplier:
+          type: number
+          format: double
+          nullable: true
+          description: "Применённый множитель к цене (опционально)"
+          example: 1.2
 
     CreateCompanyRequest:
       type: object
@@ -405,6 +432,15 @@ components:
         type: integer
         format: int64
       description: "ID текущего пользователя"
+
+    XUserIdHeaderOptional:
+      name: X-User-ID
+      in: header
+      required: false
+      schema:
+        type: integer
+        format: int64
+      description: "ID текущего пользователя (опционально, используется для получения цен от PriceService)"
 
     XUserRoleHeader:
       name: X-User-Role
@@ -645,6 +681,8 @@ paths:
       operationId: listServices
       tags:
         - Services
+      parameters:
+        - $ref: '#/components/parameters/XUserIdHeaderOptional'
       responses:
         '200':
           description: "Список услуг"
@@ -653,7 +691,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  data:
+                  services:
                     type: array
                     items:
                       $ref: '#/components/schemas/Service'
@@ -670,6 +708,8 @@ paths:
       operationId: getService
       tags:
         - Services
+      parameters:
+        - $ref: '#/components/parameters/XUserIdHeaderOptional'
       responses:
         '200':
           description: "Данные услуги"

@@ -225,6 +225,11 @@ SMK-SellerService/
 │   │   └── middleware/
 │   │       └── auth.go                 # UserIDAuth middleware
 │   └── integrations/                    # Клиенты для внешних сервисов
+│       └── priceservice/                # Клиент для SMK-PriceService
+│           ├── client.go                # HTTP клиент с GetPrice()
+│           ├── contract.go              # Интерфейс Logger
+│           ├── errors.go                # Sentinel errors
+│           └── models.go                # PriceResponse DTO
 ├── pkg/
 │   ├── logger/
 │   │   └── logger.go                   # Injectable logger (Info/Warn/Error)
@@ -544,6 +549,84 @@ if err := tx.Commit(); err != nil {
 }
 ```
 
+#### 8. Интеграция с внешними сервисами
+
+Все HTTP-клиенты для внешних микросервисов находятся в `internal/integrations/`:
+
+**Структура клиента:**
+- `client.go` - HTTP клиент с методами API
+- `contract.go` - интерфейс Logger
+- `errors.go` - sentinel errors (ErrPriceServiceUnavailable, ErrInvalidResponse)
+- `models.go` - DTO для запросов/ответов
+
+**Пример клиента (PriceService):**
+```go
+// internal/integrations/priceservice/client.go
+type Client struct {
+    baseURL    string
+    httpClient *http.Client
+    logger     Logger
+}
+
+func NewClient(baseURL string, timeout time.Duration, logger Logger) *Client {
+    return &Client{
+        baseURL: baseURL,
+        httpClient: &http.Client{
+            Timeout: timeout,
+        },
+        logger: logger,
+    }
+}
+
+func (c *Client) GetPrice(ctx context.Context, companyID, serviceID, userID int64) (*PriceResponse, error) {
+    url := fmt.Sprintf("%s/api/v1/prices?company_id=%d&service_id=%d&user_id=%d",
+        c.baseURL, companyID, serviceID, userID)
+
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+    if err != nil {
+        return nil, fmt.Errorf("%w: failed to create request: %v", ErrInvalidRequest, err)
+    }
+
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("%w: %v", ErrPriceServiceUnavailable, err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("%w: status code %d", ErrPriceServiceUnavailable, resp.StatusCode)
+    }
+
+    var priceResp PriceResponse
+    if err := json.NewDecoder(resp.Body).Decode(&priceResp); err != nil {
+        return nil, fmt.Errorf("%w: %v", ErrInvalidResponse, err)
+    }
+
+    return &priceResp, nil
+}
+```
+
+**Инициализация в main.go:**
+```go
+// Опциональная инициализация клиента
+var priceClient *priceservice.Client
+if cfg.PriceService.Enabled {
+    priceClient = priceservice.NewClient(
+        cfg.PriceService.BaseURL,
+        time.Duration(cfg.PriceService.TimeoutSeconds)*time.Second,
+        log,
+    )
+}
+
+// Передача в сервисный слой
+serviceSvc := services.NewService(serviceRepo, companyRepo, priceClient, log)
+```
+
+**Graceful degradation:**
+- Если внешний сервис недоступен - логируй WARNING, но не прерывай запрос
+- Возвращай данные без обогащения (например, услугу без цены)
+- Используй context с таймаутом для предотвращения зависания
+
 ## Схема базы данных
 
 PostgreSQL база с ключевыми таблицами:
@@ -654,10 +737,16 @@ CREATE TABLE service_addresses (
 
 **Services (Услуги):**
 - `POST /api/v1/companies/{company_id}/services` - Создание (Protected, superuser или manager компании)
-- `GET /api/v1/companies/{company_id}/services` - Список (Public)
-- `GET /api/v1/companies/{company_id}/services/{service_id}` - Получение по ID (Public)
+- `GET /api/v1/companies/{company_id}/services` - Список (Public, опциональный `X-User-ID` для получения цен)
+- `GET /api/v1/companies/{company_id}/services/{service_id}` - Получение по ID (Public, опциональный `X-User-ID` для получения цен)
 - `PUT /api/v1/companies/{company_id}/services/{service_id}` - Обновление (Protected, superuser или manager)
 - `DELETE /api/v1/companies/{company_id}/services/{service_id}` - Удаление (Protected, superuser или manager)
+
+**Интеграция с ценами (PriceService):**
+GET endpoints для услуг поддерживают опциональный заголовок `X-User-ID`. Если он передан:
+- SellerService отправляет запрос в SMK-PriceService для получения цен
+- Ответ обогащается полями: `price`, `currency`, `pricing_type`, `vehicle_class`, `applied_multiplier`
+- Если PriceService недоступен или цены нет - поля остаются `null`, но ответ всё равно успешный
 
 ### Аутентификация (MVP - Упрощённая версия)
 
@@ -970,7 +1059,18 @@ user = "postgres"
 password = "postgres"
 dbname = "smk_sellerservice"
 sslmode = "disable"
+
+[price_service]
+base_url = "http://localhost:8082"
+timeout_seconds = 5
+enabled = true
 ```
+
+**Секции конфигурации:**
+- `[logs]` - настройки логирования
+- `[server]` - HTTP порт сервиса
+- `[database]` - подключение к PostgreSQL
+- `[price_service]` - интеграция с SMK-PriceService (опционально, если `enabled = false` - цены не запрашиваются)
 
 ### Docker Compose
 
@@ -1076,11 +1176,60 @@ docker-compose run --rm migrate -path /migrations -database "postgres://postgres
 - В будущем планируется SMK-AuthService для JWT токенов
 - UserService предоставляет endpoint `GET /internal/users/{tg_user_id}` для получения информации о пользователе
 
-### SMK-PriceService (планируется)
+### SMK-PriceService (порт 8082) ✅
 
 **Назначение:**
-- Управление ценами на услуги в зависимости от размера автомобиля
-- Связь с SellerService для получения списка услуг
+- Управление ценами на услуги в зависимости от класса автомобиля пользователя
+- Предоставляет endpoint для получения цены: `GET /api/v1/prices?company_id={company_id}&service_id={service_id}&user_id={user_id}`
+
+**Интеграция с SellerService:**
+- Клиент находится в `internal/integrations/priceclient/`
+- Конфигурируется через `config.toml` в секции `[price_service]`
+- GET endpoints для услуг (`/companies/{id}/services` и `/companies/{id}/services/{id}`) автоматически обогащаются ценами при передаче заголовка `X-User-ID`
+- При недоступности PriceService ошибка логируется как WARNING, но запрос успешно возвращает данные услуги без цен
+- Таймаут HTTP клиента: 5 секунд (настраивается)
+
+**Структура ответа от PriceService:**
+```json
+{
+  "price": 1500.00,
+  "currency": "RUB",
+  "pricing_type": "fixed",
+  "vehicle_class": "sedan",
+  "applied_multiplier": 1.2
+}
+```
+
+**Пример кода интеграции:**
+```go
+// internal/service/services/service.go
+func (s *Service) GetByID(ctx context.Context, companyID, serviceID int64, userID *int64) (*models.ServiceResponse, error) {
+    service, err := s.serviceRepo.GetByID(ctx, companyID, serviceID)
+    if err != nil {
+        // ... error handling
+    }
+
+    response := models.FromDomainService(service)
+
+    // Обогащение ценой, если передан userID
+    if userID != nil && s.priceClient != nil {
+        priceResp, err := s.priceClient.GetPrice(ctx, companyID, serviceID, *userID)
+        if err != nil {
+            s.logger.Warn("Failed to get price from PriceService: %v", err)
+        } else if priceResp != nil {
+            response.EnrichWithPrice(
+                priceResp.Price,
+                priceResp.Currency,
+                priceResp.PricingType,
+                priceResp.VehicleClass,
+                priceResp.AppliedMultiplier,
+            )
+        }
+    }
+
+    return response, nil
+}
+```
 
 ### Будущая архитектура (с аутентификацией)
 
@@ -1148,6 +1297,28 @@ API Gateway (валидация JWT, маршрутизация)
    ```go
    import companyRepo "github.com/m04kA/SMK-SellerService/internal/infra/storage/company"
    ```
+
+9. **Graceful degradation для внешних сервисов:**
+   ```go
+   // ✅ Правильно - логируй WARNING, но не прерывай запрос
+   if userID != nil && s.priceClient != nil {
+       priceResp, err := s.priceClient.GetPrice(ctx, companyID, serviceID, *userID)
+       if err != nil {
+           s.logger.Warn("Failed to get price from PriceService: %v", err)
+           // Продолжаем без цены
+       } else if priceResp != nil {
+           response.EnrichWithPrice(priceResp.Price, priceResp.Currency, ...)
+       }
+   }
+   ```
+
+10. **Используй context с таймаутом в HTTP клиентах:**
+    ```go
+    client := &http.Client{
+        Timeout: 5 * time.Second,
+    }
+    req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+    ```
 
 ### DON'T ❌
 
@@ -1220,6 +1391,22 @@ API Gateway (валидация JWT, маршрутизация)
 
    // ✅ Правильно
    psqlbuilder.Select("id", "name", "description").From("companies")
+   ```
+
+8. **Не прерывай запрос при недоступности опциональных внешних сервисов:**
+   ```go
+   // ❌ Неправильно - прерываем запрос
+   priceResp, err := s.priceClient.GetPrice(ctx, companyID, serviceID, *userID)
+   if err != nil {
+       return nil, fmt.Errorf("failed to get price: %v", err)
+   }
+
+   // ✅ Правильно - возвращаем данные без цены
+   priceResp, err := s.priceClient.GetPrice(ctx, companyID, serviceID, *userID)
+   if err != nil {
+       s.logger.Warn("Failed to get price: %v", err)
+       // Продолжаем без цены
+   }
    ```
 
 ## Troubleshooting

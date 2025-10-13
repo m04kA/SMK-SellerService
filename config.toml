@@ -28,3 +28,8 @@ conn_max_lifetime = 300        # Время жизни соединения (с�
 enabled = true                 # Включить сбор метрик (переопределяется через METRICS_ENABLED)
 path = "/metrics"              # Путь для Prometheus метрик
 service_name = "sellerservice" # Имя сервиса для меток в метриках
+
+
+# Сервис цен PriceService
+[priceservice]
+base_url = "http://localhost:8082"

@@ -10,10 +10,11 @@ import (
 
 // Config представляет полную конфигурацию приложения
 type Config struct {
-	Logs     LogsConfig     `toml:"logs"`
-	Server   ServerConfig   `toml:"server"`
-	Database DatabaseConfig `toml:"database"`
-	Metrics  MetricsConfig  `toml:"metrics"`
+	Logs         LogsConfig         `toml:"logs"`
+	Server       ServerConfig       `toml:"server"`
+	Database     DatabaseConfig     `toml:"database"`
+	Metrics      MetricsConfig      `toml:"metrics"`
+	PriceService PriceServiceConfig `toml:"priceservice"`
 }
 
 // LogsConfig содержит настройки логирования
@@ -49,6 +50,11 @@ type MetricsConfig struct {
 	Enabled     bool   `toml:"enabled"`
 	Path        string `toml:"path"`
 	ServiceName string `toml:"service_name"`
+}
+
+// PriceServiceConfig содержит настройки интеграции с PriceService
+type PriceServiceConfig struct {
+	BaseURL string `toml:"base_url"`
 }
 
 // DSN формирует строку подключения к PostgreSQL
@@ -130,6 +136,11 @@ func overrideFromEnv(cfg *Config) {
 	if v := os.Getenv("METRICS_SERVICE_NAME"); v != "" {
 		cfg.Metrics.ServiceName = v
 	}
+
+	// PriceService
+	if v := os.Getenv("PRICESERVICE_BASE_URL"); v != "" {
+		cfg.PriceService.BaseURL = v
+	}
 }
 
 // validate проверяет корректность конфигурации
@@ -192,6 +203,11 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Metrics.ServiceName == "" {
 		cfg.Metrics.ServiceName = "sellerservice"
+	}
+
+	// PriceService validation
+	if cfg.PriceService.BaseURL == "" {
+		return fmt.Errorf("priceservice base_url is required")
 	}
 
 	return nil

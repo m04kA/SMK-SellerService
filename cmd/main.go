@@ -28,6 +28,7 @@ import (
 	"github.com/m04kA/SMK-SellerService/internal/config"
 	companyRepo "github.com/m04kA/SMK-SellerService/internal/infra/storage/company"
 	serviceRepo "github.com/m04kA/SMK-SellerService/internal/infra/storage/service"
+	"github.com/m04kA/SMK-SellerService/internal/integrations/priceservice"
 	companiesService "github.com/m04kA/SMK-SellerService/internal/service/companies"
 	servicesService "github.com/m04kA/SMK-SellerService/internal/service/services"
 	"github.com/m04kA/SMK-SellerService/pkg/dbmetrics"
@@ -83,6 +84,10 @@ func main() {
 	log.Info("Successfully connected to database (host=%s, port=%d, db=%s)",
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName)
 
+	// Инициализируем PriceService клиент
+	priceClient := priceservice.NewClient(cfg.PriceService.BaseURL, log)
+	log.Info("PriceService client initialized (base_url=%s)", cfg.PriceService.BaseURL)
+
 	// Инициализируем репозитории и сервисы (с метриками или без)
 	var companySvc *companiesService.Service
 	var serviceSvc *servicesService.Service
@@ -96,14 +101,14 @@ func main() {
 		serviceRepository := serviceRepo.NewRepository(wrappedDB)
 
 		companySvc = companiesService.NewService(companyRepository)
-		serviceSvc = servicesService.NewService(serviceRepository, companyRepository)
+		serviceSvc = servicesService.NewService(serviceRepository, companyRepository, priceClient)
 	} else {
 		// Инициализируем репозитории без метрик
 		companyRepository := companyRepo.NewRepository(db)
 		serviceRepository := serviceRepo.NewRepository(db)
 
 		companySvc = companiesService.NewService(companyRepository)
-		serviceSvc = servicesService.NewService(serviceRepository, companyRepository)
+		serviceSvc = servicesService.NewService(serviceRepository, companyRepository, priceClient)
 	}
 
 	// Инициализируем handlers для компаний

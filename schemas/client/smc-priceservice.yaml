@@ -1,0 +1,204 @@
+openapi: 3.0.3
+info:
+  title: Price Service API
+  description: |
+    Сервис расчёта цен для системы онлайн записи на автомойку.
+    Рассчитывает стоимость услуг в зависимости от компании, услуги и автомобиля клиента.
+  version: 1.0.0
+  contact:
+    name: API Support
+
+servers:
+  - url: http://localhost:8082/api/v1
+    description: Local development server
+
+tags:
+  - name: prices
+    description: Операции с расчётом цен
+  - name: pricing-rules
+    description: Управление правилами ценообразования
+
+paths:
+  /prices/calculate:
+    post:
+      tags:
+        - prices
+      summary: Рассчитать цены на услуги (batch)
+      description: |
+        Batch endpoint для расчёта цен на одну или несколько услуг.
+        Цена рассчитывается на основе выбранного автомобиля пользователя.
+        Если автомобиль не выбран, возвращается базовая цена.
+      operationId: calculatePrices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculatePricesRequest'
+            examples:
+              single_service:
+                summary: Расчёт цены на одну услугу
+                value:
+                  company_id: 123
+                  user_id: 456
+                  service_ids: [789]
+              multiple_services:
+                summary: Расчёт цен на несколько услуг
+                value:
+                  company_id: 123
+                  user_id: 456
+                  service_ids: [789, 790, 791]
+              without_user:
+                summary: Расчёт без пользователя (базовые цены)
+                value:
+                  company_id: 123
+                  service_ids: [789, 790]
+      responses:
+        '200':
+          description: Успешный расчёт цен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalculatePricesResponse'
+              examples:
+                with_vehicle:
+                  summary: Цены с учётом автомобиля
+                  value:
+                    prices:
+                      - service_id: 789
+                        price: 1500.00
+                        currency: "RUB"
+                        pricing_type: "vehicle_class_pricing_multiplier"
+                        vehicle_class: "C"
+                        applied_multiplier: 1.2
+                      - service_id: 790
+                        price: 3000.00
+                        currency: "RUB"
+                        pricing_type: "vehicle_class_pricing_fixed"
+                        vehicle_class: "C"
+                base_prices:
+                  summary: Базовые цены
+                  value:
+                    prices:
+                      - service_id: 789
+                        price: 1000.00
+                        currency: "RUB"
+                        pricing_type: "static"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+
+
+components:
+  schemas:
+    CalculatePricesRequest:
+      type: object
+      required:
+        - company_id
+        - service_ids
+      properties:
+        company_id:
+          type: integer
+          format: int64
+          description: ID компании
+          example: 123
+        user_id:
+          type: integer
+          format: int64
+          description: ID пользователя (опционально, если не передан - возвращаются базовые цены)
+          example: 456
+        service_ids:
+          type: array
+          description: Список ID услуг для расчёта
+          minItems: 1
+          items:
+            type: integer
+            format: int64
+          example: [789, 790, 791]
+
+    CalculatePricesResponse:
+      type: object
+      properties:
+        prices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServicePrice'
+
+    ServicePrice:
+      type: object
+      properties:
+        service_id:
+          type: integer
+          format: int64
+          description: ID услуги
+          example: 789
+        price:
+          type: number
+          format: decimal
+          description: Рассчитанная цена
+          example: 1500.00
+        currency:
+          type: string
+          description: Валюта
+          example: "RUB"
+        pricing_type:
+          type: string
+          enum: [static, vehicle_class_pricing_multiplier, vehicle_class_pricing_fixed]
+          description: |
+            Тип ценообразования:
+            - static - статичная цена
+            - vehicle_class_pricing_multiplier - цена по классу автомобиля с множителем
+            - vehicle_class_pricing_fixed - фиксированная цена по классу автомобиля
+          example: "vehicle_class_pricing_multiplier"
+        vehicle_class:
+          type: string
+          enum: [A, B, C, D, E, F, J, M, S]
+          description: |
+            Класс автомобиля согласно европейской системе классов (если применимо):
+            - A — мини-автомобили
+            - B — малые
+            - C — средние (гольф-класс)
+            - D — большие средние
+            - E — бизнес-класс
+            - F — люксовые
+            - J — внедорожники
+            - M — минивэны
+            - S — спорткары
+          example: "C"
+        applied_multiplier:
+          type: number
+          format: decimal
+          description: Применённый множитель (для vehicle_class_pricing_multiplier)
+          example: 1.2
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "invalid request body"
+
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "resource not found"
+
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "internal server error"
