@@ -48,6 +48,9 @@ make run          # Запустить приложение локально
 
 # Сброс базы данных
 make db-reset
+
+# Загрузка тестовых фикстур
+make fixtures-load
 ```
 
 ### Quick Start (Docker)
@@ -102,6 +105,14 @@ docker-compose up migrate
 
 # Откат миграции
 docker-compose run --rm migrate -path /migrations -database "postgres://postgres:postgres@postgres:5432/smk_sellerservice?sslmode=disable" down
+
+# Загрузка тестовых фикстур (рекомендуется)
+make fixtures-load
+# Загружает данные из migrations/fixtures/*.sql:
+# - 3 компании (Автомойка Премиум, СТО Профи, Детейлинг Центр)
+# - 4 адреса с координатами
+# - 5 услуг с привязкой к адресам
+# Используется ON CONFLICT для безопасного повторного применения
 ```
 
 ### Database

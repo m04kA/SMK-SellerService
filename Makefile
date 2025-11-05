@@ -1,4 +1,4 @@
-.PHONY: help build run test clean clean-all docker-build docker-up docker-down docker-restart docker-logs docker-clean docker-prune migrate-up migrate-down db-reset
+.PHONY: help build run test clean clean-all docker-build docker-up docker-down docker-restart docker-logs docker-clean docker-prune migrate-up migrate-down db-reset fixtures-load
 
 # Variables
 APP_NAME=smk-sellerservice
@@ -28,6 +28,7 @@ help:
 	@echo "  make migrate-up     - Apply database migrations"
 	@echo "  make migrate-down   - Rollback database migrations"
 	@echo "  make db-reset       - Reset database (down volumes + up)"
+	@echo "  make fixtures-load  - Load test fixtures into database"
 	@echo ""
 	@echo "Development commands:"
 	@echo "  make dev            - Start only database for local development"
@@ -51,6 +52,7 @@ clean:
 	@echo "Cleaning build artifacts and logs..."
 	@rm -rf bin/
 	@rm -rf logs/*.log
+	@rm -rf docker/
 	@echo "Clean complete"
 
 clean-all: clean docker-clean docker-prune
@@ -116,6 +118,16 @@ db-reset:
 	@sleep 5
 	@$(DOCKER_COMPOSE) up migrate
 	@echo "Database reset complete"
+
+fixtures-load:
+	@echo "Loading test fixtures into database..."
+	@$(DOCKER_COMPOSE) up -d postgres
+	@sleep 2
+	@for file in migrations/fixtures/*.sql; do \
+		echo "Loading $$file..."; \
+		$(DOCKER_COMPOSE) exec -T postgres psql -U postgres -d smk_sellerservice -f - < $$file; \
+	done
+	@echo "Fixtures loaded successfully"
 
 # Development helpers
 dev:
